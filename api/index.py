@@ -29,14 +29,29 @@ gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 chat_histories: dict[int, list[types.Content]] = {}
 
 
-def send_message(chat_id: int, text: str) -> None:
+def send_message(chat_id: int, text: str) -> httpx.Response:
     text = text or "(không có nội dung)"
+    last_response = None
     for i in range(0, len(text), 3500):
-        httpx.post(
+        last_response = httpx.post(
             f"{TELEGRAM_API}/sendMessage",
             json={"chat_id": chat_id, "text": text[i : i + 3500]},
             timeout=20,
         )
+        logger.info("sendMessage status=%s body=%s", last_response.status_code, last_response.text[:300])
+    return last_response
+
+
+@app.route("/api/health", methods=["GET"])
+def health():
+    return {
+        "telegram_token_set": bool(TELEGRAM_TOKEN),
+        "telegram_token_len": len(TELEGRAM_TOKEN) if TELEGRAM_TOKEN else 0,
+        "owner_id_set": bool(OWNER_ID),
+        "owner_id_value": OWNER_ID,
+        "gemini_key_set": bool(GEMINI_API_KEY),
+        "gemini_key_len": len(GEMINI_API_KEY) if GEMINI_API_KEY else 0,
+    }
 
 
 @app.route("/api/webhook", methods=["POST"])
@@ -51,8 +66,8 @@ def webhook():
     text = message["text"].strip()
 
     if text.startswith("/start"):
-        send_message(chat_id, f"Xin chào! Bot đang chạy 24/7 trên Vercel.\nID Telegram của bạn: {user_id}")
-        return "OK"
+        r = send_message(chat_id, f"Xin chào! Bot đang chạy 24/7 trên Vercel.\nID Telegram của bạn: {user_id}")
+        return f"OK tg_status={r.status_code if r else 'none'}"
 
     if text.startswith("/help"):
         send_message(
